@@ -2,7 +2,7 @@ import path from 'node:path'
 import type { ImportKind, Plugin } from 'esbuild'
 import { CSS_LANGS_RE, KNOWN_ASSET_TYPES } from '../constants'
 import { getDepOptimizationConfig } from '..'
-import type { ResolvedConfig } from '..'
+import type { PackageCache, ResolvedConfig } from '..'
 import {
   flattenId,
   isBuiltin,
@@ -57,14 +57,21 @@ export function esbuildDepPlugin(
     ? externalTypes.filter((type) => !extensions?.includes('.' + type))
     : externalTypes
 
+  const packageCache: PackageCache = new Map()
+
   // default resolver which prefers ESM
-  const _resolve = config.createResolver({ asSrc: false, scan: true })
+  const _resolve = config.createResolver({
+    asSrc: false,
+    scan: true,
+    packageCache,
+  })
 
   // cjs resolver that prefers Node
   const _resolveRequire = config.createResolver({
     asSrc: false,
     isRequire: true,
     scan: true,
+    packageCache,
   })
 
   const resolve = (
