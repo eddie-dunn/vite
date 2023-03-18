@@ -57,7 +57,7 @@ export function resolvePackageData(
   packageCache?: PackageCache,
 ): PackageData | null {
   if (pnp) {
-    const cacheKey = getCacheKey(pkgName, basedir, preserveSymlinks)
+    const cacheKey = getRpdCacheKey(pkgName, basedir, preserveSymlinks)
     if (packageCache?.has(cacheKey)) return packageCache.get(cacheKey)!
 
     const pkg = pnp.resolveToUnqualified(pkgName, basedir)
@@ -71,14 +71,14 @@ export function resolvePackageData(
 
   let root = basedir
   while (root) {
-    const cacheKey = getCacheKey(pkgName, root, preserveSymlinks)
+    const cacheKey = getRpdCacheKey(pkgName, root, preserveSymlinks)
     if (packageCache?.has(cacheKey)) {
       const pkgData = packageCache.get(cacheKey)!
       // cache all traversed root by this while loop
       let traversedRoot = basedir
       while (traversedRoot !== root) {
         packageCache.set(
-          getCacheKey(pkgName, traversedRoot, preserveSymlinks),
+          getRpdCacheKey(pkgName, traversedRoot, preserveSymlinks),
           pkgData,
         )
         traversedRoot = path.dirname(traversedRoot)
@@ -99,7 +99,7 @@ export function resolvePackageData(
           let traversedRoot = basedir
           while (traversedRoot !== root) {
             packageCache.set(
-              getCacheKey(pkgName, traversedRoot, preserveSymlinks),
+              getRpdCacheKey(pkgName, traversedRoot, preserveSymlinks),
               pkgData,
             )
             traversedRoot = path.dirname(traversedRoot)
@@ -114,6 +114,51 @@ export function resolvePackageData(
     root = nextRoot
   }
 
+  return null
+}
+
+export function findNearestPackageData(
+  basedir: string,
+  packageCache?: PackageCache,
+): PackageData | null {
+  let root = basedir
+  while (root) {
+    const cacheKey = getFnpdCacheKey(root)
+    if (packageCache?.has(cacheKey)) {
+      const pkgData = packageCache.get(cacheKey)!
+      // cache all traversed root by this while loop
+      let traversedRoot = basedir
+      while (traversedRoot !== root) {
+        packageCache.set(getFnpdCacheKey(traversedRoot), pkgData)
+        traversedRoot = path.dirname(traversedRoot)
+      }
+      return pkgData
+    }
+
+    const pkgPath = path.join(root, 'package.json')
+    try {
+      const stat = fs.statSync(pkgPath)
+      if (stat.isFile()) {
+        const pkgData = loadPackageData(pkgPath)
+
+        if (packageCache) {
+          // cache root itself
+          packageCache.set(cacheKey, pkgData)
+          // cache all traversed root by this while loop
+          let traversedRoot = basedir
+          while (traversedRoot !== root) {
+            packageCache.set(getFnpdCacheKey(traversedRoot), pkgData)
+            traversedRoot = path.dirname(traversedRoot)
+          }
+        }
+
+        return pkgData
+      }
+    } catch {}
+    const nextDir = path.dirname(root)
+    if (nextDir === root) break
+    root = nextDir
+  }
   return null
 }
 
@@ -202,10 +247,14 @@ export function watchPackageDataPlugin(config: ResolvedConfig): Plugin {
   }
 }
 
-function getCacheKey(
+function getRpdCacheKey(
   pkgName: string,
   basedir: string,
   preserveSymlinks: boolean,
 ) {
-  return `${pkgName}&${basedir}&${preserveSymlinks}`
+  return `rpd_${pkgName}_${basedir}_${preserveSymlinks}`
+}
+
+function getFnpdCacheKey(basedir: string) {
+  return `fnpd_${basedir}`
 }
