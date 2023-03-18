@@ -170,52 +170,63 @@ export function watchPackageDataPlugin(config: ResolvedConfig): Plugin {
   }
 }
 
-const cache = new Map<string, string>()
-
-export function resolvePkgData(
+export function resolvePkgJsonPath(
   pkgName: string,
   basedir: string,
   preserveSymlinks = false,
   packageCache?: PackageCache,
-): string | undefined {
+): PackageData | undefined {
   if (pnp) {
+    const cacheKey = getCacheKey(pkgName, basedir, preserveSymlinks)
+    if (packageCache?.has(cacheKey)) return packageCache.get(cacheKey)!
+
     const pkg = pnp.resolveToUnqualified(pkgName, basedir)
     if (!pkg) return undefined
-    return path.join(pkg, 'package.json')
+
+    const pkgData = loadPackageData(path.join(pkg, 'package.json'))
+
+    packageCache?.set(cacheKey, pkgData)
+    return pkgData
   }
 
   let root = basedir
   while (root) {
-    const cacheKey = `${root}&${pkgName}&${preserveSymlinks}`
-    if (cache?.has(cacheKey)) {
-      const matched = cache.get(cacheKey)!
+    const cacheKey = getCacheKey(pkgName, root, preserveSymlinks)
+    if (packageCache?.has(cacheKey)) {
+      const pkgData = packageCache.get(cacheKey)!
       // cache all traversed root by this while loop
       let traversedRoot = basedir
       while (traversedRoot !== root) {
-        cache.set(`${traversedRoot}&${pkgName}&${preserveSymlinks}`, matched)
+        packageCache.set(
+          getCacheKey(pkgName, traversedRoot, preserveSymlinks),
+          pkgData,
+        )
         traversedRoot = path.dirname(traversedRoot)
       }
-      return matched
+      return pkgData
     }
 
     const pkg = path.join(root, 'node_modules', pkgName, 'package.json')
     try {
       if (fs.existsSync(pkg)) {
-        const matched = preserveSymlinks ? pkg : safeRealpathSync(pkg)
-        if (matched && cache) {
+        const pkgPath = preserveSymlinks ? pkg : safeRealpathSync(pkg)
+        const pkgData = loadPackageData(pkgPath)
+
+        if (packageCache) {
           // cache root itself
-          cache.set(cacheKey, matched)
+          packageCache.set(cacheKey, pkgData)
           // cache all traversed root by this while loop
           let traversedRoot = basedir
           while (traversedRoot !== root) {
-            cache.set(
-              `${traversedRoot}&${pkgName}&${preserveSymlinks}`,
-              matched,
+            packageCache.set(
+              getCacheKey(pkgName, traversedRoot, preserveSymlinks),
+              pkgData,
             )
             traversedRoot = path.dirname(traversedRoot)
           }
         }
-        return matched
+
+        return pkgData
       }
     } catch {}
     const nextRoot = path.dirname(root)
@@ -226,7 +237,7 @@ export function resolvePkgData(
   return undefined
 }
 
-function generatePackageCacheKey(
+function getCacheKey(
   pkgName: string,
   basedir: string,
   preserveSymlinks: boolean,
