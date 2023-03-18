@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
-import { createDebugger, createFilter, safeRealpathSync } from './utils'
+import { createFilter, safeRealpathSync } from './utils'
 import type { ResolvedConfig } from './config'
 import type { Plugin } from './plugin'
 
@@ -12,11 +12,6 @@ if (process.versions.pnp) {
     pnp = createRequire(import.meta.url)('pnpapi')
   } catch {}
 }
-
-const isDebug = process.env.DEBUG
-const debug = createDebugger('vite:resolve-details', {
-  onlyWhenFocused: true,
-})
 
 /** Cache for package.json resolution and package.json contents */
 export type PackageCache = Map<string, PackageData>
@@ -56,33 +51,70 @@ export function invalidatePackageData(
 }
 
 export function resolvePackageData(
-  id: string,
+  pkgName: string,
   basedir: string,
   preserveSymlinks = false,
   packageCache?: PackageCache,
 ): PackageData | null {
-  let pkg: PackageData | undefined
-  let cacheKey: string | undefined
-  if (packageCache) {
-    cacheKey = `${id}&${basedir}&${preserveSymlinks}`
-    if ((pkg = packageCache.get(cacheKey))) {
-      return pkg
-    }
+  if (pnp) {
+    const cacheKey = getCacheKey(pkgName, basedir, preserveSymlinks)
+    if (packageCache?.has(cacheKey)) return packageCache.get(cacheKey)!
+
+    const pkg = pnp.resolveToUnqualified(pkgName, basedir)
+    if (!pkg) return null
+
+    const pkgData = loadPackageData(path.join(pkg, 'package.json'))
+
+    packageCache?.set(cacheKey, pkgData)
+    return pkgData
   }
-  const pkgPath = resolvePkgJsonPath(id, basedir, preserveSymlinks)
-  if (!pkgPath) return null
-  try {
-    pkg = loadPackageData(pkgPath, true, packageCache)
-    if (packageCache) {
-      packageCache.set(cacheKey!, pkg)
+
+  let root = basedir
+  while (root) {
+    const cacheKey = getCacheKey(pkgName, root, preserveSymlinks)
+    if (packageCache?.has(cacheKey)) {
+      const pkgData = packageCache.get(cacheKey)!
+      // cache all traversed root by this while loop
+      let traversedRoot = basedir
+      while (traversedRoot !== root) {
+        packageCache.set(
+          getCacheKey(pkgName, traversedRoot, preserveSymlinks),
+          pkgData,
+        )
+        traversedRoot = path.dirname(traversedRoot)
+      }
+      return pkgData
     }
-    return pkg
-  } catch (e) {
-    if (e instanceof SyntaxError) {
-      isDebug && debug(`Parsing failed: ${pkgPath}`)
-    }
-    throw e
+
+    const pkg = path.join(root, 'node_modules', pkgName, 'package.json')
+    try {
+      if (fs.existsSync(pkg)) {
+        const pkgPath = preserveSymlinks ? pkg : safeRealpathSync(pkg)
+        const pkgData = loadPackageData(pkgPath)
+
+        if (packageCache) {
+          // cache root itself
+          packageCache.set(cacheKey, pkgData)
+          // cache all traversed root by this while loop
+          let traversedRoot = basedir
+          while (traversedRoot !== root) {
+            packageCache.set(
+              getCacheKey(pkgName, traversedRoot, preserveSymlinks),
+              pkgData,
+            )
+            traversedRoot = path.dirname(traversedRoot)
+          }
+        }
+
+        return pkgData
+      }
+    } catch {}
+    const nextRoot = path.dirname(root)
+    if (nextRoot === root) break
+    root = nextRoot
   }
+
+  return null
 }
 
 function loadPackageData(pkgPath: string): PackageData {
@@ -168,73 +200,6 @@ export function watchPackageDataPlugin(config: ResolvedConfig): Plugin {
       }
     },
   }
-}
-
-export function resolvePkgJsonPath(
-  pkgName: string,
-  basedir: string,
-  preserveSymlinks = false,
-  packageCache?: PackageCache,
-): PackageData | undefined {
-  if (pnp) {
-    const cacheKey = getCacheKey(pkgName, basedir, preserveSymlinks)
-    if (packageCache?.has(cacheKey)) return packageCache.get(cacheKey)!
-
-    const pkg = pnp.resolveToUnqualified(pkgName, basedir)
-    if (!pkg) return undefined
-
-    const pkgData = loadPackageData(path.join(pkg, 'package.json'))
-
-    packageCache?.set(cacheKey, pkgData)
-    return pkgData
-  }
-
-  let root = basedir
-  while (root) {
-    const cacheKey = getCacheKey(pkgName, root, preserveSymlinks)
-    if (packageCache?.has(cacheKey)) {
-      const pkgData = packageCache.get(cacheKey)!
-      // cache all traversed root by this while loop
-      let traversedRoot = basedir
-      while (traversedRoot !== root) {
-        packageCache.set(
-          getCacheKey(pkgName, traversedRoot, preserveSymlinks),
-          pkgData,
-        )
-        traversedRoot = path.dirname(traversedRoot)
-      }
-      return pkgData
-    }
-
-    const pkg = path.join(root, 'node_modules', pkgName, 'package.json')
-    try {
-      if (fs.existsSync(pkg)) {
-        const pkgPath = preserveSymlinks ? pkg : safeRealpathSync(pkg)
-        const pkgData = loadPackageData(pkgPath)
-
-        if (packageCache) {
-          // cache root itself
-          packageCache.set(cacheKey, pkgData)
-          // cache all traversed root by this while loop
-          let traversedRoot = basedir
-          while (traversedRoot !== root) {
-            packageCache.set(
-              getCacheKey(pkgName, traversedRoot, preserveSymlinks),
-              pkgData,
-            )
-            traversedRoot = path.dirname(traversedRoot)
-          }
-        }
-
-        return pkgData
-      }
-    } catch {}
-    const nextRoot = path.dirname(root)
-    if (nextRoot === root) break
-    root = nextRoot
-  }
-
-  return undefined
 }
 
 function getCacheKey(
