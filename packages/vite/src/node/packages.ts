@@ -162,7 +162,7 @@ export function findNearestPackageData(
   return null
 }
 
-function loadPackageData(pkgPath: string): PackageData {
+export function loadPackageData(pkgPath: string): PackageData {
   const data = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'))
   const pkgDir = path.dirname(pkgPath)
   const { sideEffects } = data
