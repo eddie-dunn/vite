@@ -598,10 +598,10 @@ function tryResolveFile(
     } else if (tryIndex) {
       if (!skipPackageJson) {
         let pkgPath = file + '/package.json'
-        if (!options.preserveSymlinks) {
-          pkgPath = safeRealpathSync(pkgPath)
-        }
         try {
+          if (!options.preserveSymlinks) {
+            pkgPath = safeRealpathSync(pkgPath)
+          }
           // path points to a node package
           const pkg = loadPackageData(pkgPath)
           const resolved = resolvePackageEntry(file, pkg, targetWeb, options)

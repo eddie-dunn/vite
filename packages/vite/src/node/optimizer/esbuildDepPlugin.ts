@@ -268,6 +268,10 @@ module.exports = Object.create(new Proxy({}, {
           }
         },
       )
+
+      build.onEnd(() => {
+        packageCache.clear()
+      })
     },
   }
 }
