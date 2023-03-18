@@ -85,20 +85,7 @@ export function resolvePackageData(
   }
 }
 
-export function loadPackageData(
-  pkgPath: string,
-  preserveSymlinks?: boolean,
-  packageCache?: PackageCache,
-): PackageData {
-  if (!preserveSymlinks) {
-    pkgPath = safeRealpathSync(pkgPath)
-  }
-
-  let cached: PackageData | undefined
-  if ((cached = packageCache?.get(pkgPath))) {
-    return cached
-  }
-
+function loadPackageData(pkgPath: string): PackageData {
   const data = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'))
   const pkgDir = path.dirname(pkgPath)
   const { sideEffects } = data
@@ -147,7 +134,6 @@ export function loadPackageData(
     },
   }
 
-  packageCache?.set(pkgPath, pkg)
   return pkg
 }
 
@@ -186,11 +172,11 @@ export function watchPackageDataPlugin(config: ResolvedConfig): Plugin {
 
 const cache = new Map<string, string>()
 
-export function resolvePkgJsonPath(
+export function resolvePkgData(
   pkgName: string,
   basedir: string,
   preserveSymlinks = false,
-  // cache?: Map<string, string>,
+  packageCache?: PackageCache,
 ): string | undefined {
   if (pnp) {
     const pkg = pnp.resolveToUnqualified(pkgName, basedir)
@@ -238,4 +224,12 @@ export function resolvePkgJsonPath(
   }
 
   return undefined
+}
+
+function generatePackageCacheKey(
+  pkgName: string,
+  basedir: string,
+  preserveSymlinks: boolean,
+) {
+  return `${pkgName}&${basedir}&${preserveSymlinks}`
 }
