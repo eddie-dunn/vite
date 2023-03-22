@@ -114,7 +114,32 @@ async function ssrTransformScript(
     )
   }
 
-  // 1. check all import statements and record id -> importName map
+  // 1. check all re-export statements and define exports
+  for (const node of ast.body as Node[]) {
+    // export { foo, bar } from './foo'
+    if (node.type === 'ExportNamedDeclaration' && node.source) {
+      s.remove(node.start, node.end)
+      const importId = defineImport(node.source.value as string)
+      // hoist re-exports near defined imports so they are immediately exported
+      for (const spec of node.specifiers) {
+        defineExport(0, spec.exported.name, `${importId}.${spec.local.name}`)
+      }
+    }
+
+    // export * from './foo'
+    if (node.type === 'ExportAllDeclaration') {
+      s.remove(node.start, node.end)
+      const importId = defineImport(node.source.value as string)
+      // hoist re-exports near defined imports so they are immediately exported
+      if (node.exported) {
+        defineExport(0, node.exported.name, `${importId}`)
+      } else {
+        s.appendLeft(0, `${ssrExportAllKey}(${importId});\n`)
+      }
+    }
+  }
+
+  // 2. check all import statements and record id -> importName map
   for (const node of ast.body as Node[]) {
     // import foo from 'foo' --> foo -> __import_foo__.default
     // import { baz } from 'foo' --> baz -> __import_foo__.baz
@@ -138,7 +163,7 @@ async function ssrTransformScript(
     }
   }
 
-  // 2. check all export statements and define exports
+  // 3. check all export statements and define exports
   for (const node of ast.body as Node[]) {
     // named exports
     if (node.type === 'ExportNamedDeclaration') {
@@ -159,25 +184,13 @@ async function ssrTransformScript(
           }
         }
         s.remove(node.start, (node.declaration as Node).start)
-      } else {
+      } else if (!node.source) {
+        // export { foo, bar }
         s.remove(node.start, node.end)
-        if (node.source) {
-          // export { foo, bar } from './foo'
-          const importId = defineImport(node.source.value as string)
-          for (const spec of node.specifiers) {
-            defineExport(
-              node.end,
-              spec.exported.name,
-              `${importId}.${spec.local.name}`,
-            )
-          }
-        } else {
-          // export { foo, bar }
-          for (const spec of node.specifiers) {
-            const local = spec.local.name
-            const binding = idToImportMap.get(local)
-            defineExport(node.end, spec.exported.name, binding || local)
-          }
+        for (const spec of node.specifiers) {
+          const local = spec.local.name
+          const binding = idToImportMap.get(local)
+          defineExport(node.end, spec.exported.name, binding || local)
         }
       }
     }
@@ -208,20 +221,9 @@ async function ssrTransformScript(
         )
       }
     }
-
-    // export * from './foo'
-    if (node.type === 'ExportAllDeclaration') {
-      s.remove(node.start, node.end)
-      const importId = defineImport(node.source.value as string)
-      if (node.exported) {
-        defineExport(node.end, node.exported.name, `${importId}`)
-      } else {
-        s.appendLeft(node.end, `${ssrExportAllKey}(${importId});`)
-      }
-    }
   }
 
-  // 3. convert references to import bindings & import.meta references
+  // 4. convert references to import bindings & import.meta references
   walk(ast, {
     onIdentifier(id, parent, parentStack) {
       const grandparent = parentStack[1]

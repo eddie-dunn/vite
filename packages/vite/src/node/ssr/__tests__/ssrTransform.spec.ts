@@ -103,9 +103,11 @@ test('export * from', async () => {
     ),
   ).toMatchInlineSnapshot(`
     "const __vite_ssr_import_0__ = await __vite_ssr_import__(\\"vue\\");
-    const __vite_ssr_import_1__ = await __vite_ssr_import__(\\"react\\");
     __vite_ssr_exportAll__(__vite_ssr_import_0__);
-    __vite_ssr_exportAll__(__vite_ssr_import_1__);"
+    const __vite_ssr_import_1__ = await __vite_ssr_import__(\\"react\\");
+    __vite_ssr_exportAll__(__vite_ssr_import_1__);
+
+    "
   `)
 })
 
@@ -131,8 +133,9 @@ test('export then import minified', async () => {
     ),
   ).toMatchInlineSnapshot(`
     "const __vite_ssr_import_0__ = await __vite_ssr_import__(\\"vue\\");
+    __vite_ssr_exportAll__(__vite_ssr_import_0__);
     const __vite_ssr_import_1__ = await __vite_ssr_import__(\\"vue\\");
-    __vite_ssr_exportAll__(__vite_ssr_import_1__);"
+    "
   `)
 })
 
